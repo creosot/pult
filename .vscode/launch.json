@@ -1,0 +1,47 @@
+// AUTOMATICALLY GENERATED FILE. PLEASE DO NOT MODIFY IT MANUALLY
+//
+// PIO Unified Debugger
+//
+// Documentation: https://docs.platformio.org/page/plus/debugging.html
+// Configuration: https://docs.platformio.org/page/projectconf/section_env_debug.html
+
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "platformio-debug",
+            "request": "launch",
+            "name": "PIO Debug",
+            "executable": "d:/YandexDisk/AVR/Stm8/220512-140101-arduino-fade-all-pins/.pio/build/stm8sblack/firmware.elf",
+            "projectEnvName": "stm8sblack",
+            "toolchainBinDir": "C:/Users/creos/.platformio/packages/tool-stm8binutils/bin",
+            "internalConsoleOptions": "openOnSessionStart",
+            "svdPath": "C:/Users/creos/.platformio/platforms/ststm8/misc/svd/STM8S105K4.svd",
+            "preLaunchTask": {
+                "type": "PlatformIO",
+                "task": "Pre-Debug"
+            }
+        },
+        {
+            "type": "platformio-debug",
+            "request": "launch",
+            "name": "PIO Debug (skip Pre-Debug)",
+            "executable": "d:/YandexDisk/AVR/Stm8/220512-140101-arduino-fade-all-pins/.pio/build/stm8sblack/firmware.elf",
+            "projectEnvName": "stm8sblack",
+            "toolchainBinDir": "C:/Users/creos/.platformio/packages/tool-stm8binutils/bin",
+            "internalConsoleOptions": "openOnSessionStart",
+            "svdPath": "C:/Users/creos/.platformio/platforms/ststm8/misc/svd/STM8S105K4.svd"
+        },
+        {
+            "type": "platformio-debug",
+            "request": "launch",
+            "name": "PIO Debug (without uploading)",
+            "executable": "d:/YandexDisk/AVR/Stm8/220512-140101-arduino-fade-all-pins/.pio/build/stm8sblack/firmware.elf",
+            "projectEnvName": "stm8sblack",
+            "toolchainBinDir": "C:/Users/creos/.platformio/packages/tool-stm8binutils/bin",
+            "internalConsoleOptions": "openOnSessionStart",
+            "svdPath": "C:/Users/creos/.platformio/platforms/ststm8/misc/svd/STM8S105K4.svd",
+            "loadMode": "manual"
+        }
+    ]
+}
