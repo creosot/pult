@@ -8,6 +8,7 @@
  */
 #include <Arduino.h>
 #include <string.h>
+#include "setup.h"
 
 uint8_t pre_cmd[] = { 0x23, 0x09, 0x23, 0x0D, 0x0A };
 uint8_t menu_cmd[] = { 0x21, 0x09, 0x3F, 0x09, 0x4E, 0x0D, 0x0A };
@@ -38,71 +39,7 @@ uint8_t DoorOpen[] = { 0x57, 0x0D, 0x0A };
 uint8_t InstallMenu_enter_to[] = { 0x3F, 0x09, 0x48, 0x0D, 0x0A, 0x21, 0x09, 0x3F, 0x09, 0x4C, 0x0D, 0x0A };
 uint8_t Enter_Return[] = { 0x21, 0x09, 0x3F, 0x09, 0x4C, 0x0D, 0x0A };
 
-#define BUTTON_GPIO_PORT  (GPIOB)
-#define BUTTON_GPIO_PINS  (GPIO_PIN_3 | GPIO_PIN_2 | GPIO_PIN_1 | GPIO_PIN_0)
-#define LED_GPIO_PORT  (GPIOC)
-#define LED_GPIO_PINS  (GPIO_PIN_2 | GPIO_PIN_1)
-#define OUT_GPIO_PORT  (GPIOD)
-#define OUT_GPIO_PINS  (GPIO_PIN_7 | GPIO_PIN_4 | GPIO_PIN_3 | GPIO_PIN_2 | GPIO_PIN_0)
-#define OUT_START_PIN (GPIO_PIN_0)
-#define OUT_NUSE_PIN (GPIO_PIN_2)
-#define OUT_PLUS_PIN (GPIO_PIN_3)
-#define OUT_MINUS_PIN (GPIO_PIN_4)
-#define OUT_ENTER_PIN (GPIO_PIN_7)
-#define BUTTON_COUNT	4
-#define DEBOUNCE_ms 50
-#define GERKON_GPIO_PORT (GPIOC)
-#define GERKON_PIN (GPIO_PIN_4)
-#define LED_UP_PIN (GPIO_PIN_1)
-#define LED_DOWN_PIN (GPIO_PIN_2)
-#define BUT_MODE 0
-#define BUT_MINUS 1
-#define BUT_PLUS 2
-#define BUT_ENTER 3
-#define SIZE_BUFFER 100
-
-typedef enum FLASH_MODE{
-	FLASH_UP = 1,
-	FLASH_DOWN,
-	FLASH_BOTH,
-	FLASH_NONE,
-} Flash_mode;
-
-typedef enum MODE{
-	MODE_UP = 1,
-	MODE_DOWN,
-	MODE_BOTH,
-	OVER,
-} Mode;
-
-typedef enum MENU{
-	MENU_MENUE = 0,
-	MENU_UP,
-	MENU_DOWN,
-	MENU_BOTH,
-	MENU_STRETCHING,
-	MENU_INSTALL
-} Menu;
-
-typedef struct CONTROL{
-	Mode current_mode;
-	Menu current_menu;
-} Control;
-
 //Control ctrl = {MODE_UP, MENU_MENUE};
-
-static void CLK_Config(void);
-static void GPIO_Config();
-static void IWDG_Config();  //1.02s
-static void EEPROM_Config();
-void getButtonState(uint8_t but);
-void loop_check_button();
-void *memmem(const void *haystack, size_t hlen, const void *needle, size_t nlen);
-bool select_mode(Control* ctrl);
-void flash_led(Flash_mode flash);
-void iwdg_reset();
-void check_reset_flag();
-void switch_menu_press_plus(Control* ctrl);
 
 uint8_t buttonMask[BUTTON_COUNT] = { GPIO_PIN_0, GPIO_PIN_1, GPIO_PIN_2, GPIO_PIN_3 };
 uint8_t buttonOnLevel[BUTTON_COUNT] = { GPIO_PIN_0, GPIO_PIN_1, GPIO_PIN_2, GPIO_PIN_3 };
@@ -158,57 +95,116 @@ void setup()  {
   	FLASH_SetProgrammingTime(FLASH_PROGRAMTIME_STANDARD);
 } 
 
-void loop()  {
-	Control ctrl = {MODE_UP, MENU_MENUE};
-	while (wait_connect_pult)
+bool scan_change_mode(Control* ctrl)
+{
+	IWDG_ReloadCounter();
+	if (button_mode)
 	{
-		IWDG_ReloadCounter();
-		loop_check_button();
-		if (button_mode)
+		Mode mode = ctrl->required_mode;
+		uint32_t time_end = millis() + 3000;
+		while (true)
 		{
-			button_mode = 0;
-			//check_reset_flag();
-			if (select_mode(&ctrl))
+			IWDG_ReloadCounter();
+			if (button_enter)
 			{
-				flash_led(FLASH_NONE);
-				flash_led(ctrl.current_mode);
-				wait_connect_pult = false;
-				break;
+				button_enter = 0;
+				ctrl->required_mode = mode;
+				LEDS_OFF;
+				flash_led(ctrl->required_mode);
+				return true;
 			}
-			else
+			if (button_mode)
 			{
-				GPIO_WriteHigh(LED_GPIO_PORT, LED_GPIO_PINS);
+				time_end = millis() + 3000;
+				button_mode = 0;
+				mode += 1;
+				if (mode >= 4)
+				{
+					mode = 1;
+				}
+			}
+			continous_flash_led(mode);
+			scan_buttons();
+			if (millis() > time_end || button_plus || button_minus)
+			{
+				continous_flash_led(ctrl->required_mode);
+				button_plus = 0;
+				button_minus = 0;
+				return false;
 			}
 		}
 	}
+}
+
+void continous_flash_led(Flash_mode flash)
+{
+	switch (flash)
+	{
+	case FLASH_UP:
+		LED_UP_ON;
+		LED_DOWN_OFF;
+		return;
+	case FLASH_DOWN:
+		LED_DOWN_ON;
+		LED_UP_OFF;
+		return;
+	case FLASH_BOTH:
+		LEDS_ON;
+		return;
+	case FLASH_NONE:
+		LEDS_OFF;
+		return;
+	default:
+		return;
+	}
+}
+
+void loop()  
+{
+	Control ctrl = {MODE_NONE, MENU_MENUE, UNKNOwN};
+	while (wait_connect_pult)
+	{
+		IWDG_ReloadCounter();
+		scan_buttons();
+		if (scan_change_mode(&ctrl))
+		{
+			flash_led(ctrl.required_mode);
+			wait_connect_pult = false;
+			break;
+		}
+		else
+		{
+			LEDS_OFF;
+		}
+	}
 	uint32_t time_delay;
-	GPIO_WriteLow(OUT_GPIO_PORT, OUT_START_PIN);
+	START_ON_VBUT;
 	time_delay = millis() + 372;
 	while (time_delay > millis())
 	{
 		IWDG_ReloadCounter();
-		flash_led(ctrl.current_mode);
+		flash_led(ctrl.required_mode);
 	}
-  	GPIO_WriteHigh(OUT_GPIO_PORT, OUT_START_PIN);
+  	START_OFF_VBUT;
 	time_delay = millis() + 120;
 	while (time_delay > millis())
 	{
 		IWDG_ReloadCounter();
-		flash_led(ctrl.current_mode);
+		flash_led(ctrl.required_mode);
 	}
-  	GPIO_WriteLow(OUT_GPIO_PORT, OUT_START_PIN);
+  	START_ON_VBUT;
 	time_delay = millis() + 199;
 	while (time_delay > millis())
 	{
 		IWDG_ReloadCounter();
-		flash_led(ctrl.current_mode);
+		flash_led(ctrl.required_mode);
 	}
-  	GPIO_WriteHigh(OUT_GPIO_PORT, OUT_START_PIN);
+  	START_OFF_VBUT;
 	time_delay = millis() + 2128;
 	while (time_delay > millis())
 	{
 		IWDG_ReloadCounter();
-		flash_led(ctrl.current_mode);
+		flash_led(ctrl.required_mode);
 	}
 	Serial_flush();
 	Serial_write(0x23);
@@ -223,7 +219,7 @@ void loop()  {
 		while (power_on)
 		{
 			IWDG_ReloadCounter();
-			flash_led(ctrl.current_mode);
+			flash_led(ctrl.required_mode);
 			if (Serial_available() > 0) 
 			{
 				incomingByte = Serial_read(); // get the character
@@ -262,27 +258,27 @@ void loop()  {
 					// 	break;
 					// }
 				}
-				if (buf_index == SIZE_BUFFER)
-				{ // Serial.println(F("Buffer full"));
-					iwdg_reset();
+				if (buf_index >= SIZE_BUFFER)
+				{
+					iwdg_reset(); // Serial.println(F("Buffer full"));
 				}
 			}
 			if (millis() > time_loop)
-			{ // Serial.println(F("Time read end. Restart"));
-				iwdg_reset();
+			{ 
+				iwdg_reset(); // Serial.println(F("Time read end. Restart"));
 			}
 		}
 		while (menu)
 		{
 			IWDG_ReloadCounter();
-			flash_led(ctrl.current_mode);
+			flash_led(ctrl.required_mode);
 			if (Serial_available() > 0)
 			{
 				incomingByte = Serial_read(); // get the character
 				buf[buf_index++] = (uint8_t)incomingByte;
-				if (buf_index == SIZE_BUFFER)
-				{ //Serial.println(F("Buffer full"));
-					iwdg_reset();
+				if (buf_index >= SIZE_BUFFER)
+				{ 
+					iwdg_reset(); //Serial.println(F("Buffer full"));
 				}
 				if (incomingByte == '\n') 
 				{
@@ -299,12 +295,13 @@ void loop()  {
 						buf_index = 0; //Serial.println(F("UPMOTOR WITH ENTER RETURN or PLUS NEXT"));
 						Serial_flush();
 						ctrl.current_menu = MENU_UP;
-						while (true)
-						{
-							IWDG_ReloadCounter();
-							flash_led(ctrl.current_mode);
-						}
-						
+						IWDG_ReloadCounter();
+						flash_led(ctrl.required_mode);
+						PLUS_OFF_VBUT;
+						menu = 0;
+						upmotor = 1;
+						time_loop = millis() + 10000;
+						break;
 						//stop_enter_press_loop();
 						//loop_check_menu();
 					}
@@ -373,78 +370,108 @@ void loop()  {
 					// }
 				}
 			}
-
 			switch_menu_press_plus(&ctrl);
-
-			//loop_enter_emulate_press();
-			
-// 			switch (ctrl.current_menu)
-// 			{
-// 			case MENU_MENUE:
-// 				if (ctrl.current_menu == MENU_MENUE) 
-// 				{
-// 					menu = 0;
-// 					menue = 1;
-// 				}
-// 				break;
-// 			case MENU_UP:
-// 				if (to_menu == MENU_UP) 
-// 				{
-// 					start_enter_press_loop();
-// 					menu = 0;
-// 					upmotor = 1;
-// 				}
-// 				break;
-// 			case MENU_DOWN:
-// 				if (to_menu == MENU_DOWN) 
-// 				{
-// 					start_enter_press_loop();
-// 					menu = 0;
-// 					downmotor = 1;
-// 				}
-// 				break;
-// 			case MENU_BOTH:
-// 				if (to_menu == MENU_BOTH) 
-// 				{
-// 					start_enter_press_loop();
-// 					menu = 0;
-// 					bothmotors = 1;
-// 				}
-// 				break;
-// 			case MENU_INSTALL:
-// 				if (to_menu == MENU_INSTALL) 
-// 				{
-// 					start_enter_press_loop();
-// //					menu = 0;
-// //					install = 1;
-// 				}
-// 				break;
-// 			default:
-// 				break;
-// 			}
 		}
-		// while (menue)
-		// {
-		// 	IWDG_ReloadCounter();
-		// 	GPIO_WriteLow(LED_GPIO_PORT, LED_GPIO_PINS);
-	// 		led_main_cont();
-	// 		loop_check_button();
-	// 		if (wait_enter_press())
-	// 		{
-	// 			loop_check_menu();
-	// 			menue = 0;
-	// 			menu = 1;
-	// 		}
-	// 		if (button_plus && button_minus)
-	// 		{
-	// 			led_all_off();
-	// 			to_menu = MENU_INSTALL;
-	// 			led_install_flash();
-	// 			loop_check_menu();
-	// 			menue = 0;
-	// 			menu = 1;
-	// 		}
-		// }
+
+		while (upmotor)
+		{
+			IWDG_ReloadCounter();
+			start_emulate_press_enter();
+			flash_led(ctrl.required_mode);
+			if (Serial_available() > 0)
+			{
+				incomingByte = Serial_read(); // get the character
+				buf[buf_index++] = (uint8_t)incomingByte;
+				if (buf_index >= SIZE_BUFFER)
+				{
+					iwdg_reset(); //Serial.println(F("Buffer full"));
+				}
+				if (millis() > time_loop)
+				{ 
+					iwdg_reset(); // Serial.println(F("Time read end. Restart"));
+				}
+				if (incomingByte == '\n') 
+				{
+					if (memmem(buf, buf_index, UpmotorMenu_enter_to_Upmotor_cmd, 6) != NULL)
+					{
+						buf_index = 0; //Serial.println(F("UPMOTOR"));
+						Serial_flush();
+						ENTER_OFF_VBUT;
+						continous_flash_led(ctrl.required_mode);
+						while (true)
+						{
+							IWDG_ReloadCounter();
+							scan_buttons();
+
+							if (scan_change_mode(&ctrl))
+							{
+								flash_led(ctrl.required_mode);
+								upmotor = 0;
+								menu = 1;
+								//wait_connect_pult = false;
+								break;
+							}
+
+						}
+					}
+				}
+			}
+			
+
+			
+			// loop_flash_leds();
+			// loop_check_button();
+			// loop_enter_emulate_press();
+			// loop_wait_and_emulate_plus_minus_press();
+			// if (wait_enter_press())
+			// {
+			// 	stop_wait_and_emulate_plus_minus_press_loop();
+			// 	start_enter_press_loop();
+			// 	upmotor = 0;
+			// 	menu = 1;
+			// 	break;
+			// }
+		}
+
+	}
+}
+
+void start_emulate_press_enter()
+{
+	static uint32_t press_on = 0;
+	static uint32_t loop_press = 0;
+	if (millis() > loop_press)
+	{
+		ENTER_ON_VBUT; 
+		press_on = millis() + 300;
+		loop_press = millis() + 550;
+	}
+	if (millis() > press_on)
+	{
+		ENTER_OFF_VBUT; //digitalWrite(BUT_PLUS, LOW);
+	}
+}
+
+void emulate_press_enter(Control* ctrl)
+{
+	static uint32_t press_on = 0;
+	static uint32_t loop_press = 0;
+	if (ctrl->required_mode != ctrl->current_podmenu)
+	{	
+		if (millis() > loop_press)
+		{
+			ENTER_ON_VBUT; 
+			press_on = millis() + 300;
+			loop_press = millis() + 550;
+		}
+		if (millis() > press_on)
+		{
+			ENTER_OFF_VBUT; //digitalWrite(BUT_PLUS, LOW);
+		}
+	}
+	else
+	{
+		ENTER_OFF_VBUT;
 	}
 }
 
@@ -452,22 +479,22 @@ void switch_menu_press_plus(Control* ctrl)
 {
 	static uint32_t press_on = 0;
 	static uint32_t loop_press = 0;
-	if (ctrl->current_menu != ctrl->current_mode)
+	if (ctrl->required_mode != ctrl->current_menu)
 	{	
 		if (millis() > loop_press)
 		{
-			GPIO_WriteLow(OUT_GPIO_PORT, OUT_PLUS_PIN); //digitalWrite(BUT_PLUS, HIGH);
+			PLUS_ON_VBUT; //digitalWrite(BUT_PLUS, HIGH);
 			press_on = millis() + 300;
 			loop_press = millis() + 550;
 		}
 		if (millis() > press_on)
 		{
-			GPIO_WriteHigh(OUT_GPIO_PORT, OUT_PLUS_PIN); //digitalWrite(BUT_PLUS, LOW);
+			PLUS_OFF_VBUT; //digitalWrite(BUT_PLUS, LOW);
 		}
 	}
 	else
 	{
-		GPIO_WriteHigh(OUT_GPIO_PORT, OUT_PLUS_PIN);
+		PLUS_OFF_VBUT;
 	}
 }
 
@@ -490,52 +517,52 @@ void check_reset_flag()
   	}
 }
 
-bool select_mode(Control* ctrl){
-	Mode mode = ctrl->current_mode;
-	uint32_t time_end = millis() + 3000;
-	while (true)
-	{
-		IWDG_ReloadCounter();
-		switch (mode)
-		{
-		case MODE_UP:
-			GPIO_WriteLow(LED_GPIO_PORT, LED_UP_PIN);
-			GPIO_WriteHigh(LED_GPIO_PORT, LED_DOWN_PIN);
-			break;
-		case MODE_DOWN:
-			GPIO_WriteLow(LED_GPIO_PORT, LED_DOWN_PIN);
-			GPIO_WriteHigh(LED_GPIO_PORT, LED_UP_PIN);
-			break;
-		case MODE_BOTH:
-			GPIO_WriteLow(LED_GPIO_PORT, LED_GPIO_PINS);
-			break;
-		case OVER:
-			mode = MODE_UP;
-			GPIO_WriteLow(LED_GPIO_PORT, LED_UP_PIN);
-			GPIO_WriteHigh(LED_GPIO_PORT, LED_DOWN_PIN);
-			break;
-		default:
-			break;
-		}
-		loop_check_button();
-		if (button_enter)
-		{
-			button_enter = 0;
-			ctrl->current_mode = mode;
-			return true;
-		}
-		if (button_mode)
-		{
-			time_end = millis() + 3000;
-			button_mode = 0;
-			mode += 1;
-		}
-		if (millis() > time_end)
-		{
-			return false;
-		}
-	}
-}
+// bool select_mode(Control* ctrl){
+// 	Mode mode = ctrl->required_mode;
+// 	uint32_t time_end = millis() + 3000;
+// 	while (true)
+// 	{
+// 		IWDG_ReloadCounter();
+// 		switch (mode)
+// 		{
+// 		case MODE_UP:
+// 			LED_UP_ON;
+// 			LED_DOWN_OFF;
+// 			break;
+// 		case MODE_DOWN:
+// 			LED_DOWN_ON;
+// 			LED_UP_OFF;
+// 			break;
+// 		case MODE_BOTH:
+// 			LEDS_ON;
+// 			break;
+// 		case MODE_NONE:
+// 			mode = MODE_UP;
+// 			LED_UP_ON;
+// 			LED_DOWN_OFF;
+// 			break;
+// 		default:
+// 			break;
+// 		}
+// 		loop_check_button();
+// 		if (button_enter)
+// 		{
+// 			button_enter = 0;
+// 			ctrl->required_mode = mode;
+// 			return true;
+// 		}
+// 		if (button_mode)
+// 		{
+// 			time_end = millis() + 3000;
+// 			button_mode = 0;
+// 			mode += 1;
+// 		}
+// 		if (millis() > time_end)
+// 		{
+// 			return false;
+// 		}
+// 	}
+// }
 
 void iwdg_reset()
 {
@@ -601,7 +628,7 @@ void *memmem(const void *haystack, size_t hlen, const void *needle, size_t nlen)
     return NULL;
 }
 
-void loop_check_button()
+void scan_buttons()
 {
 	for (uint8_t i = 0; i < BUTTON_COUNT; i++)
 	{
