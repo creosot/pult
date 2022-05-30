@@ -34,6 +34,8 @@
 #define PLUS_OFF_VBUT (GPIO_WriteHigh(OUT_GPIO_PORT, OUT_PLUS_PIN))
 #define ENTER_ON_VBUT (GPIO_WriteLow(OUT_GPIO_PORT, OUT_ENTER_PIN))
 #define ENTER_OFF_VBUT (GPIO_WriteHigh(OUT_GPIO_PORT, OUT_ENTER_PIN))
+#define RESET_TIME_LOOP_10s (time_loop = millis() + 10000)
+#define RESET_TIME_LOOP_15s (time_loop = millis() + 15000)
 
 typedef enum FLASH_MODE{
 	FLASH_UP = 1,
@@ -68,7 +70,7 @@ typedef enum PODMENU{
 typedef struct CONTROL{
 	Mode required_mode;
 	Menu current_menu;
-    Podmenu current_podmenu;
+    bool podmenu;
 } Control;
 
 static void CLK_Config(void);
@@ -78,6 +80,7 @@ static void EEPROM_Config();
 void getButtonState(uint8_t but);
 void scan_buttons();
 void *memmem(const void *haystack, size_t hlen, const void *needle, size_t nlen);
+//void * __memmem(const void *haystack_start, size_t haystack_len, const void *needle_start, size_t needle_len);
 //bool select_mode(Control* ctrl);
 bool scan_change_mode(Control* ctrl);
 void flash_led(Flash_mode flash);
@@ -85,5 +88,8 @@ void continous_flash_led(Flash_mode flash);
 void iwdg_reset();
 void check_reset_flag();
 void switch_menu_press_plus(Control* ctrl);
-void emulate_press_enter(Control* ctrl);
+//void emulate_press_enter(Control* ctrl);
 void start_emulate_press_enter();
+void emulate_plus_minus_press();
+// void wait_to_podmenu(Control* ctrl, Menu menu);
+// void jump_to_podmenu(Control* ctrl);

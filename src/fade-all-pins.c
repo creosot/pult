@@ -65,7 +65,7 @@ uint8_t menu = 0;
 uint8_t menue = 0;
 uint8_t upmotor_menu = 0;
 uint8_t bottommotor_menu = 0;
-uint8_t upmotor = 0;
+uint8_t podmenu_motors = 0;
 uint8_t downmotor = 0;
 uint8_t bothmotors_menu = 0;
 uint8_t bothmotors = 0;
@@ -84,7 +84,7 @@ const uint8_t led2 = 24;
 
 void setup()  {
 	CLK_Config();
-	IWDG_Config();
+	//IWDG_Config();
   	GPIO_Config();
 	IWDG_ReloadCounter();  
 	EEPROM_Config();
@@ -95,73 +95,9 @@ void setup()  {
   	FLASH_SetProgrammingTime(FLASH_PROGRAMTIME_STANDARD);
 } 
 
-bool scan_change_mode(Control* ctrl)
-{
-	IWDG_ReloadCounter();
-	if (button_mode)
-	{
-		Mode mode = ctrl->required_mode;
-		uint32_t time_end = millis() + 3000;
-		while (true)
-		{
-			IWDG_ReloadCounter();
-			if (button_enter)
-			{
-				button_enter = 0;
-				ctrl->required_mode = mode;
-				LEDS_OFF;
-				flash_led(ctrl->required_mode);
-				return true;
-			}
-			if (button_mode)
-			{
-				time_end = millis() + 3000;
-				button_mode = 0;
-				mode += 1;
-				if (mode >= 4)
-				{
-					mode = 1;
-				}
-			}
-			continous_flash_led(mode);
-			scan_buttons();
-			if (millis() > time_end || button_plus || button_minus)
-			{
-				continous_flash_led(ctrl->required_mode);
-				button_plus = 0;
-				button_minus = 0;
-				return false;
-			}
-		}
-	}
-}
-
-void continous_flash_led(Flash_mode flash)
-{
-	switch (flash)
-	{
-	case FLASH_UP:
-		LED_UP_ON;
-		LED_DOWN_OFF;
-		return;
-	case FLASH_DOWN:
-		LED_DOWN_ON;
-		LED_UP_OFF;
-		return;
-	case FLASH_BOTH:
-		LEDS_ON;
-		return;
-	case FLASH_NONE:
-		LEDS_OFF;
-		return;
-	default:
-		return;
-	}
-}
-
 void loop()  
 {
-	Control ctrl = {MODE_NONE, MENU_MENUE, UNKNOwN};
+	Control ctrl = {MODE_NONE, MENU_MENUE, false};
 	while (wait_connect_pult)
 	{
 		IWDG_ReloadCounter();
@@ -226,24 +162,30 @@ void loop()
 				buf[buf_index++] = (uint8_t)incomingByte;
 				if (incomingByte == '\n') 
 				{
-					if (memmem(buf, buf_index, pre_cmd, 5) != NULL)
+					if (memmem(&buf, buf_index, &pre_cmd, 5) != NULL)
 					{
 						buf_index = 0;
-						time_loop = 15000 + millis();
-						delay(500);
+						//delay(500);
+						time_delay = millis() + 500;
+						while (time_delay > millis())
+						{
+							IWDG_ReloadCounter();
+							flash_led(ctrl.required_mode);
+						}
+						RESET_TIME_LOOP_15s;
 						Serial_write(0x23);
 						Serial_write(0x0D);
 						Serial_write(0x0A);
 						Serial_flush();
 					}
-					else if (memmem(buf, buf_index, menu_cmd, 7) != NULL)
+					else if (memmem(&buf, buf_index, &menu_cmd, 7) != NULL)
 					{
 						buf_index = 0; // Serial.println(F("MENUE PLUS NEXT"));
 						Serial_flush();
 						ctrl.current_menu = MENU_MENUE;
 						power_on = 0;
-						// menue = 1;
 						menu = 1;
+						RESET_TIME_LOOP_10s;
 						break;
 					}
 					// else if (memmem(buf, buf_index, InstallMode, 7) != NULL)
@@ -270,8 +212,12 @@ void loop()
 		}
 		while (menu)
 		{
-			IWDG_ReloadCounter();
+			//IWDG_ReloadCounter();
 			flash_led(ctrl.required_mode);
+			//if (millis() > time_loop)
+		 	// { 
+			// 	iwdg_reset(); // Serial.println(F("Time read end. Restart"));
+	 		// }
 			if (Serial_available() > 0)
 			{
 				incomingByte = Serial_read(); // get the character
@@ -282,28 +228,28 @@ void loop()
 				}
 				if (incomingByte == '\n') 
 				{
-					if (memmem(buf, buf_index, menu_cmd, 7) != NULL)
+					if (memmem(&buf, buf_index, &menu_cmd, 7) != NULL)
 					{
 						buf_index = 0; //Serial.println(F("MENUE PLUS NEXT"));
 						Serial_flush();
 						ctrl.current_menu = MENU_MENUE;
-						//stop_enter_press_loop();
-						//loop_check_menu();
+						RESET_TIME_LOOP_15s;
 					}
-					else if (memmem(buf, buf_index, Menu_plus_to_UpmotorMenu_cmd, 7) != NULL)
+					else if (memmem(&buf, buf_index, &Menu_plus_to_UpmotorMenu_cmd, 7) != NULL)
 					{
 						buf_index = 0; //Serial.println(F("UPMOTOR WITH ENTER RETURN or PLUS NEXT"));
 						Serial_flush();
 						ctrl.current_menu = MENU_UP;
-						IWDG_ReloadCounter();
-						flash_led(ctrl.required_mode);
-						PLUS_OFF_VBUT;
+						RESET_TIME_LOOP_15s;
+					}
+					else if (memmem(&buf, buf_index, &UpmotorMenu_enter_to_Upmotor_cmd, 6) != NULL)
+					{
+						buf_index = 0; //Serial.println(F("UPMOTOR"));
+						Serial_flush();
+						ENTER_OFF_VBUT;
+						podmenu_motors = 1;
 						menu = 0;
-						upmotor = 1;
-						time_loop = millis() + 10000;
 						break;
-						//stop_enter_press_loop();
-						//loop_check_menu();
 					}
 					// else if (memmem(buf, buf_index, Upmotor_enter_to_UpmotorMenu_cmd, 9) != NULL)
 					// {
@@ -313,14 +259,23 @@ void loop()
 					// 	//stop_enter_press_loop();
 					// 	//loop_check_menu();
 					// }
-					// else if (memmem(buf, buf_index, UpmotorMenu_plus_to_BottommotorMenu_cmd, 7) != NULL)
-					// {
-					// 	buf_index = 0; //Serial.println(F("DOWNMOTOR WITH ENTER RETURN or PLUS NEXT"));
-					// 	Serial_flush();
-					// 	control.current_menu = MENU_DOWN;
-					// 	//stop_enter_press_loop();
-					// 	//loop_check_menu();
-					// }
+					else if (memmem(&buf, buf_index, &UpmotorMenu_plus_to_BottommotorMenu_cmd, 7) != NULL)
+					{
+						buf_index = 0; //Serial.println(F("DOWNMOTOR WITH ENTER RETURN or PLUS NEXT"));
+						Serial_flush();
+						//PLUS_OFF_VBUT;
+						ctrl.current_menu = MENU_DOWN;
+						RESET_TIME_LOOP_15s;
+					}
+					else if (memmem(&buf, buf_index, &BottommotorMenu_enter_to_Bottommotor_cmd, 6) != NULL)
+					{
+						buf_index = 0; //Serial.println(F("DOWNMOTOR"));
+						Serial_flush();
+						ENTER_OFF_VBUT;
+						podmenu_motors = 1;
+						menu = 0;
+						break;
+					}
 					// else if (memmem(buf, buf_index, Bottommotor_enter_to_BottommotorMenu_cmd, 9) != NULL)
 					// {
 					// 	buf_index = 0;
@@ -372,50 +327,58 @@ void loop()
 			}
 			switch_menu_press_plus(&ctrl);
 		}
-
-		while (upmotor)
+		while (podmenu_motors)
 		{
 			IWDG_ReloadCounter();
-			start_emulate_press_enter();
-			flash_led(ctrl.required_mode);
-			if (Serial_available() > 0)
-			{
-				incomingByte = Serial_read(); // get the character
-				buf[buf_index++] = (uint8_t)incomingByte;
-				if (buf_index >= SIZE_BUFFER)
-				{
-					iwdg_reset(); //Serial.println(F("Buffer full"));
-				}
-				if (millis() > time_loop)
-				{ 
-					iwdg_reset(); // Serial.println(F("Time read end. Restart"));
-				}
-				if (incomingByte == '\n') 
-				{
-					if (memmem(buf, buf_index, UpmotorMenu_enter_to_Upmotor_cmd, 6) != NULL)
-					{
-						buf_index = 0; //Serial.println(F("UPMOTOR"));
-						Serial_flush();
-						ENTER_OFF_VBUT;
-						continous_flash_led(ctrl.required_mode);
-						while (true)
-						{
-							IWDG_ReloadCounter();
-							scan_buttons();
+		 	continous_flash_led(ctrl.required_mode);
+		 	scan_buttons();
+			emulate_plus_minus_press();
+		}
+		
 
-							if (scan_change_mode(&ctrl))
-							{
-								flash_led(ctrl.required_mode);
-								upmotor = 0;
-								menu = 1;
-								//wait_connect_pult = false;
-								break;
-							}
+		// while (upmotor)
+		// {
+		// 	IWDG_ReloadCounter();
+		// 	start_emulate_press_enter();
+		// 	flash_led(ctrl.required_mode);
+		// 	if (Serial_available() > 0)
+		// 	{
+		// 		incomingByte = Serial_read(); // get the character
+		// 		buf[buf_index++] = (uint8_t)incomingByte;
+		// 		if (buf_index >= SIZE_BUFFER)
+		// 		{
+		// 			iwdg_reset(); //Serial.println(F("Buffer full"));
+		// 		}
+		// 		if (millis() > time_loop)
+		// 		{ 
+		// 			iwdg_reset(); // Serial.println(F("Time read end. Restart"));
+		// 		}
+		// 		if (incomingByte == '\n') 
+		// 		{
+		// 			if (memmem(buf, buf_index, UpmotorMenu_enter_to_Upmotor_cmd, 6) != NULL)
+		// 			{
+		// 				buf_index = 0; //Serial.println(F("UPMOTOR"));
+		// 				Serial_flush();
+		// 				ENTER_OFF_VBUT;
+		// 				while (true)
+		// 				{
+		// 					IWDG_ReloadCounter();
+		// 					continous_flash_led(ctrl.required_mode);
+		// 					scan_buttons();
 
-						}
-					}
-				}
-			}
+		// 					// if (scan_change_mode(&ctrl))
+		// 					// {
+		// 					// 	flash_led(ctrl.required_mode);
+		// 					// 	upmotor = 0;
+		// 					// 	menu = 1;
+		// 					// 	//wait_connect_pult = false;
+		// 					// 	break;
+		// 					// }
+
+		// 				}
+		// 			}
+		// 		}
+		// 	}
 			
 
 			
@@ -431,55 +394,90 @@ void loop()
 			// 	menu = 1;
 			// 	break;
 			// }
-		}
+		// }
 
+	}
+}
+
+void emulate_plus_minus_press()
+{	
+	if (button_plus)
+	{
+		GPIO_WriteLow(OUT_GPIO_PORT, OUT_PLUS_PIN); //digitalWrite(BUT_PLUS, HIGH);
+	}
+	else
+	{
+		GPIO_WriteHigh(OUT_GPIO_PORT, OUT_PLUS_PIN); //digitalWrite(BUT_PLUS, LOW);
+	}
+	if (button_minus)
+	{
+		GPIO_WriteLow(OUT_GPIO_PORT, OUT_MINUS_PIN); //digitalWrite(BUT_MINUS, HIGH);
+	}
+	else
+	{
+		GPIO_WriteHigh(OUT_GPIO_PORT, OUT_MINUS_PIN); //digitalWrite(BUT_MINUS, LOW);
 	}
 }
 
 void start_emulate_press_enter()
 {
-	static uint32_t press_on = 0;
-	static uint32_t loop_press = 0;
-	if (millis() > loop_press)
+	static uint32_t press_on_enter = 0;
+	static uint32_t loop_press_enter = 0;
+	if (millis() > loop_press_enter)
 	{
 		ENTER_ON_VBUT; 
-		press_on = millis() + 300;
-		loop_press = millis() + 550;
+		press_on_enter = millis() + 300;
+		loop_press_enter = millis() + 550;
 	}
-	if (millis() > press_on)
+	if (millis() > press_on_enter)
 	{
 		ENTER_OFF_VBUT; //digitalWrite(BUT_PLUS, LOW);
 	}
 }
 
-void emulate_press_enter(Control* ctrl)
-{
-	static uint32_t press_on = 0;
-	static uint32_t loop_press = 0;
-	if (ctrl->required_mode != ctrl->current_podmenu)
-	{	
-		if (millis() > loop_press)
-		{
-			ENTER_ON_VBUT; 
-			press_on = millis() + 300;
-			loop_press = millis() + 550;
-		}
-		if (millis() > press_on)
-		{
-			ENTER_OFF_VBUT; //digitalWrite(BUT_PLUS, LOW);
-		}
-	}
-	else
-	{
-		ENTER_OFF_VBUT;
-	}
-}
+// void switch_menu_press_plus(Control* ctrl)
+// {
+// 	LED_UP_ON;
+// 	static uint32_t press_on = 0;
+// 	static uint32_t loop_press = 0;
+// 	if (ctrl->required_mode != ctrl->current_menu)
+// 	{	
+// 		if (millis() > loop_press)
+// 		{
+// 			PLUS_ON_VBUT; //digitalWrite(BUT_PLUS, HIGH);
+// 			press_on = millis() + 300;
+// 			loop_press = millis() + 550;
+// 		}
+// 		if (millis() > press_on)
+// 		{
+// 			PLUS_OFF_VBUT; //digitalWrite(BUT_PLUS, LOW);
+// 		}
+// 	}
+// 	else
+// 	{
+// 		PLUS_OFF_VBUT;
+// 		// if (ctrl->podmenu)
+// 		// {
+// 		// 	start_emulate_press_enter();
+// 		// }
+// 	}
+// 	LED_UP_OFF;
+// }
 
 void switch_menu_press_plus(Control* ctrl)
 {
+	//LED_UP_ON;
 	static uint32_t press_on = 0;
 	static uint32_t loop_press = 0;
-	if (ctrl->required_mode != ctrl->current_menu)
+	if ((uint8_t)ctrl->required_mode == (uint8_t)ctrl->current_menu)
+	{
+		PLUS_OFF_VBUT;
+		if (ctrl->podmenu)
+		{
+			start_emulate_press_enter();
+		}
+	}
+	else
 	{	
 		if (millis() > loop_press)
 		{
@@ -492,9 +490,79 @@ void switch_menu_press_plus(Control* ctrl)
 			PLUS_OFF_VBUT; //digitalWrite(BUT_PLUS, LOW);
 		}
 	}
-	else
+	// else
+	// {
+	// 	PLUS_OFF_VBUT;
+	// 	// if (ctrl->podmenu)
+	// 	// {
+	// 	// 	start_emulate_press_enter();
+	// 	// }
+	// }
+	//LED_UP_OFF;
+}
+
+bool scan_change_mode(Control* ctrl)
+{
+	IWDG_ReloadCounter();
+	if (button_mode)
 	{
-		PLUS_OFF_VBUT;
+		Mode mode = ctrl->required_mode;
+		uint32_t time_end = millis() + 3000;
+		while (true)
+		{
+			IWDG_ReloadCounter();
+			if (button_enter)
+			{
+				button_enter = 0;
+				ctrl->required_mode = mode;
+				ctrl->podmenu = true;
+				LEDS_OFF;
+				flash_led(ctrl->required_mode);
+				return true;
+			}
+			if (button_mode)
+			{
+				time_end = millis() + 3000;
+				button_mode = 0;
+				mode += 1;
+				if (mode >= 4)
+				{
+					mode = 1;
+				}
+			}
+			continous_flash_led(mode);
+			scan_buttons();
+			if (millis() > time_end || button_plus || button_minus)
+			{
+				continous_flash_led(ctrl->required_mode);
+				button_plus = 0;
+				button_minus = 0;
+				return false;
+			}
+		}
+	}
+}
+
+void continous_flash_led(Flash_mode flash)
+{
+	switch (flash)
+	{
+	case FLASH_UP:
+		LED_UP_ON;
+		LED_DOWN_OFF;
+		return;
+	case FLASH_DOWN:
+		LED_DOWN_ON;
+		LED_UP_OFF;
+		return;
+	case FLASH_BOTH:
+		LEDS_ON;
+		return;
+	case FLASH_NONE:
+		LEDS_OFF;
+		return;
+	default:
+		return;
 	}
 }
 
@@ -619,7 +687,7 @@ void *memmem(const void *haystack, size_t hlen, const void *needle, size_t nlen)
     while (plen >= nlen && (p = memchr(p, needle_first, plen - nlen + 1)))
     {
         if (!memcmp(p, needle, nlen))
-            return (void *)p;
+            return haystack;
 
         p++;
         plen = hlen - (p - haystack);
@@ -627,6 +695,37 @@ void *memmem(const void *haystack, size_t hlen, const void *needle, size_t nlen)
 
     return NULL;
 }
+
+// void * __memmem(const void *haystack_start, size_t haystack_len, const void *needle_start, size_t needle_len)
+// {
+//   	const unsigned char *haystack = (const unsigned char *) haystack_start;
+//   	const unsigned char *needle = (const unsigned char *) needle_start;
+//   	if (needle_len == 0)
+//   	{
+// 	 	return (void *) haystack; 
+//   	}
+//   	if (haystack_len < needle_len)
+//   	{
+// 		return NULL;  
+//   	}
+  
+//     haystack = memchr (haystack, *needle, haystack_len);
+//     if (!haystack || (needle_len == 1))
+// 	{
+// 		return (void *) haystack;  
+// 	}	
+//     	haystack_len -= haystack - (const unsigned char *) haystack_start;
+//     if (haystack_len < needle_len)
+// 	{
+// 		return NULL;  
+// 	}
+//     if (memcmp (haystack, needle, needle_len) == 0)
+// 	{
+// 		return (void *) haystack; 
+// 	}
+//       	//return two_way_short_needle (haystack, haystack_len, needle, needle_len);
+//     }
+// }
 
 void scan_buttons()
 {
